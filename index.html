@@ -10,10 +10,13 @@
          justify-content: center; height: 100vh; font-family: 'Courier New', monospace; overflow: hidden; }
   #gameCanvas { border: 2px solid #0f0; }
   #ui { color: #0f0; display: flex; justify-content: space-between; width: 320px; padding: 10px; font-size: 14px; }
-  #controls { display: flex; gap: 20px; margin-top: 10px; }
+  #controls { display: flex; justify-content: space-between; align-items: center;
+              width: 320px; margin-top: 10px; }
+  #moveBtns { display: flex; gap: 12px; }
   .btn { width: 70px; height: 50px; background: #222; border: 2px solid #0f0; color: #0f0;
          font-size: 20px; border-radius: 10px; user-select: none; display: flex;
          align-items: center; justify-content: center; }
+  #fireBtn { width: 90px; }
   .btn:active { background: #0f0; color: #000; }
   .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); display: flex;
              flex-direction: column; align-items: center; justify-content: center; color: #0f0; gap: 15px; }
@@ -26,13 +29,16 @@
 <body>
   <div id="ui">
     <span>SCORE: <span id="score">0</span></span>
+    <span>LEVEL: <span id="level">1</span></span>
     <span>LIVES: <span id="lives">3</span></span>
   </div>
   <canvas id="gameCanvas" width="320" height="400"></canvas>
   <div id="controls">
-    <div class="btn" id="leftBtn">◀</div>
     <div class="btn" id="fireBtn">🔥</div>
-    <div class="btn" id="rightBtn">▶</div>
+    <div id="moveBtns">
+      <div class="btn" id="leftBtn">◀</div>
+      <div class="btn" id="rightBtn">▶</div>
+    </div>
   </div>
 
   <div id="startScreen" class="overlay">
@@ -43,6 +49,7 @@
   <div id="gameOverScreen" class="overlay hidden">
     <h1>GAME OVER</h1>
     <p>Final Score: <span id="finalScore">0</span></p>
+    <p>Level Reached: <span id="finalLevel">1</span></p>
     <button id="restartBtn">PLAY AGAIN</button>
     <button id="submitBtn">SUBMIT SCORE</button>
   </div>
@@ -55,19 +62,26 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-let gameRunning = false, score = 0, lives = 3, animationId;
+let gameRunning = false, score = 0, lives = 3, level = 1, animationId;
+let bannerFrames = 0;
 const player = { x: 144, y: 360, width: 32, height: 24, speed: 3 };
 let bullets = [], invaderBullets = [], invaders = [];
 const rows = 4, cols = 8;
 let dir = 1, speed = 0.3;
-const keys = { left: false, right: false };
+const keys = { left: false, right: false, fire: false };
 let canFire = true;
+
+// Difficulty scaling per level
+function levelSpeed()  { return 0.3 + Math.min(level - 1, 10) * 0.1; }
+function shootChance() { return Math.min(0.02 + (level - 1) * 0.004, 0.05); }
+function startY()      { return 40 + Math.min(level - 1, 5) * 8; }
 
 function initInvaders() {
   invaders = [];
+  const top = startY();
   for (let r = 0; r < rows; r++)
     for (let c = 0; c < cols; c++)
-      invaders.push({ x: 30 + c * 35, y: 40 + r * 30, width: 24, height: 18, alive: true, type: r });
+      invaders.push({ x: 30 + c * 35, y: top + r * 30, width: 24, height: 18, alive: true, type: r });
 }
 
 function drawPlayer() {
@@ -87,7 +101,20 @@ function drawInvader(i) {
   ctx.fillRect(i.x + 18, i.y + 12, 4, 6);
 }
 
+function nextLevel() {
+  level++;
+  document.getElementById('level').textContent = level;
+  bullets = [];
+  invaderBullets = [];
+  dir = 1;
+  speed = levelSpeed();
+  initInvaders();
+  bannerFrames = 90; // about 1.5 seconds at 60fps
+  tg.HapticFeedback?.notificationOccurred('success');
+}
+
 function update() {
+  if (keys.fire) fire();
   if (keys.left && player.x > 0) player.x -= player.speed;
   if (keys.right && player.x < canvas.width - player.width) player.x += player.speed;
 
@@ -108,7 +135,7 @@ function update() {
   }
 
   const alive = invaders.filter(i => i.alive);
-  if (alive.length && Math.random() < 0.02) {
+  if (alive.length && Math.random() < shootChance()) {
     const s = alive[Math.floor(Math.random() * alive.length)];
     invaderBullets.push({ x: s.x + s.width / 2, y: s.y + s.height });
   }
@@ -124,7 +151,7 @@ function update() {
       }
   bullets = bullets.filter(b => !b.hit);
 
-  if (invaders.every(i => !i.alive)) { speed = 0.3; dir = 1; initInvaders(); }
+  if (invaders.every(i => !i.alive)) { nextLevel(); return; }
 
   // invader bullets vs player
   for (const b of invaderBullets)
@@ -146,6 +173,14 @@ function draw() {
   bullets.forEach(b => ctx.fillRect(b.x, b.y, 3, 10));
   ctx.fillStyle = '#f00';
   invaderBullets.forEach(b => ctx.fillRect(b.x, b.y, 3, 8));
+
+  if (bannerFrames > 0) {
+    ctx.fillStyle = '#0f0';
+    ctx.font = 'bold 28px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('LEVEL ' + level, canvas.width / 2, canvas.height / 2);
+    bannerFrames--;
+  }
 }
 
 function loop() {
@@ -159,8 +194,10 @@ function loop() {
 function gameOver() {
   if (!gameRunning) return;
   gameRunning = false;
+  keys.fire = false; keys.left = false; keys.right = false;
   cancelAnimationFrame(animationId);
   document.getElementById('finalScore').textContent = score;
+  document.getElementById('finalLevel').textContent = level;
   document.getElementById('gameOverScreen').classList.remove('hidden');
 }
 
@@ -172,9 +209,11 @@ function fire() {
 }
 
 function startGame() {
-  score = 0; lives = 3; bullets = []; invaderBullets = [];
-  speed = 0.3; dir = 1; player.x = 144;
+  score = 0; lives = 3; level = 1; bannerFrames = 0;
+  bullets = []; invaderBullets = [];
+  dir = 1; speed = levelSpeed(); player.x = 144;
   document.getElementById('score').textContent = score;
+  document.getElementById('level').textContent = level;
   document.getElementById('lives').textContent = lives;
   document.getElementById('startScreen').classList.add('hidden');
   document.getElementById('gameOverScreen').classList.add('hidden');
@@ -186,8 +225,9 @@ function startGame() {
 document.getElementById('startBtn').onclick = startGame;
 document.getElementById('restartBtn').onclick = startGame;
 // sendData closes the Mini App, so only do it on an explicit tap
-document.getElementById('submitBtn').onclick = () => tg.sendData(JSON.stringify({ score }));
+document.getElementById('submitBtn').onclick = () => tg.sendData(JSON.stringify({ score, level }));
 
+// Movement buttons (hold to move)
 function hold(id, key) {
   const el = document.getElementById(id);
   const on = e => { e.preventDefault(); keys[key] = true; };
@@ -201,18 +241,28 @@ function hold(id, key) {
 }
 hold('leftBtn', 'left');
 hold('rightBtn', 'right');
-const fireBtn = document.getElementById('fireBtn');
-fireBtn.addEventListener('touchstart', e => { e.preventDefault(); fire(); });
-fireBtn.addEventListener('mousedown', fire);
 
+// Fire button (hold to autofire)
+const fireBtn = document.getElementById('fireBtn');
+const fireOn = e => { e.preventDefault(); keys.fire = true; fire(); };
+const fireOff = e => { e.preventDefault(); keys.fire = false; };
+fireBtn.addEventListener('touchstart', fireOn);
+fireBtn.addEventListener('touchend', fireOff);
+fireBtn.addEventListener('touchcancel', fireOff);
+fireBtn.addEventListener('mousedown', fireOn);
+fireBtn.addEventListener('mouseup', fireOff);
+fireBtn.addEventListener('mouseleave', fireOff);
+
+// Keyboard (for desktop testing)
 document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') keys.left = true;
   if (e.key === 'ArrowRight') keys.right = true;
-  if (e.key === ' ' || e.key === 'ArrowUp') { e.preventDefault(); fire(); }
+  if (e.key === ' ' || e.key === 'ArrowUp') { e.preventDefault(); keys.fire = true; }
 });
 document.addEventListener('keyup', e => {
   if (e.key === 'ArrowLeft') keys.left = false;
   if (e.key === 'ArrowRight') keys.right = false;
+  if (e.key === ' ' || e.key === 'ArrowUp') keys.fire = false;
 });
 </script>
 </body>
