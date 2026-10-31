@@ -10,23 +10,19 @@
          justify-content: center; height: 100vh; font-family: 'Courier New', monospace; overflow: hidden; }
   #gameCanvas { border: 2px solid #0f0; }
   #ui { color: #0f0; display: flex; justify-content: space-between; width: 320px; padding: 10px; font-size: 14px; }
-  #controls { display: flex; justify-content: space-between; align-items: center;
-              width: 320px; margin-top: 10px; }
+  #controls { display: flex; justify-content: space-between; align-items: center; width: 320px; margin-top: 10px; }
   #moveBtns { display: flex; gap: 12px; }
-  .btn { width: 70px; height: 50px; background: #222; border: 2px solid #0f0; color: #0f0;
-         font-size: 20px; border-radius: 10px; user-select: none; display: flex;
-         align-items: center; justify-content: center; }
+  .btn { width: 70px; height: 50px; background: #222; border: 2px solid #0f0; color: #0f0; font-size: 20px;
+         border-radius: 10px; user-select: none; display: flex; align-items: center; justify-content: center; }
   #fireBtn { width: 90px; }
   .btn:active { background: #0f0; color: #000; }
-  .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.95); display: flex;
-             flex-direction: column; align-items: center; justify-content: center; color: #0f0; gap: 15px; }
-  .overlay h1 { font-size: 24px; text-align: center; }
-  .overlay button { padding: 15px 30px; font-size: 18px; background: #0f0; color: #000;
-                    border: none; cursor: pointer; font-family: inherit; font-weight: bold; }
-  .overlay .menuBtn { width: 260px; padding: 18px; font-size: 16px; background: #111; color: #0f0;
-                      border: 2px solid #0f0; }
-  .overlay .menuBtn:active { background: #0f0; color: #000; }
-  .overlay .secondary { background: #111; color: #0f0; border: 2px solid #0f0; font-size: 14px; padding: 10px 20px; }
+  .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.95); display: flex; flex-direction: column;
+             align-items: center; justify-content: center; color: #0f0; gap: 15px; text-align: center; }
+  .overlay h1 { font-size: 24px; }
+  .overlay button { padding: 15px 30px; font-size: 18px; background: #0f0; color: #000; border: none;
+                    cursor: pointer; font-family: inherit; font-weight: bold; }
+  .overlay .alt { background: #111; color: #0f0; border: 2px solid #0f0; font-size: 16px; }
+  .overlay .menuBtn { width: 260px; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -45,78 +41,54 @@
     </div>
   </div>
 
-  <!-- Game select -->
   <div id="menuScreen" class="overlay">
     <h1>🕹️ ARCADE 🕹️</h1>
-    <button class="menuBtn" data-game="invaders">👾 SPACE INVADERS</button>
-    <button class="menuBtn" data-game="snake">🐍 SNAKE</button>
+    <button class="alt menuBtn" data-game="invaders">👾 SPACE INVADERS</button>
+    <button class="alt menuBtn" data-game="snake">🐍 SNAKE</button>
   </div>
 
-  <!-- Per-game start -->
   <div id="startScreen" class="overlay hidden">
     <h1 id="startTitle">GAME</h1>
     <p id="startHint"></p>
     <button id="startBtn">START GAME</button>
-    <button id="backBtn" class="secondary">← MENU</button>
+    <button id="backBtn" class="alt">← MENU</button>
   </div>
 
-  <!-- Game over -->
   <div id="gameOverScreen" class="overlay hidden">
     <h1>GAME OVER</h1>
     <p>Final Score: <span id="finalScore">0</span></p>
     <p id="extraLine">Level Reached: <span id="finalLevel">1</span></p>
     <button id="restartBtn">PLAY AGAIN</button>
     <button id="submitBtn">SUBMIT SCORE</button>
-    <button id="menuBtn" class="secondary">MAIN MENU</button>
+    <button id="menuBtn" class="alt">MAIN MENU</button>
   </div>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script>
 const $ = id => document.getElementById(id);
-const canvas = $('gameCanvas');
-const ctx = canvas.getContext('2d');
+const canvas = $('gameCanvas'), ctx = canvas.getContext('2d');
 
-// Telegram is optional so the game still runs in a normal browser
-const tg = window.Telegram?.WebApp;
-tg?.ready();
-tg?.expand();
-const haptic = {
-  tap:  () => tg?.HapticFeedback?.impactOccurred('light'),
-  hurt: () => tg?.HapticFeedback?.notificationOccurred('error'),
-  win:  () => tg?.HapticFeedback?.notificationOccurred('success'),
-};
+// Telegram is optional, so the game also runs in a normal browser
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+function buzz(type, kind) { try { tg.HapticFeedback[type](kind); } catch (e) {} }
 
-// Shared state
-let current = null, currentKey = null, running = false, animationId = 0, lastT = 0;
+let current = null, currentKey = null, running = false, raf = 0, lastT = 0;
 let score = 0, lives = 3, level = 1;
 const keys = { left: false, right: false, fire: false };
 
+const show = id => $(id).classList.remove('hidden');
+const hide = id => $(id).classList.add('hidden');
 function updateHud() {
   $('score').textContent = score;
   $('level').textContent = level;
   $('lives').textContent = lives;
 }
-function show(id) { $(id).classList.remove('hidden'); }
-function hide(id) { $(id).classList.add('hidden'); }
-function clearCanvas() { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
 
-function endGame(levelReached) {
-  if (!running) return;
-  running = false;
-  cancelAnimationFrame(animationId);
-  Object.keys(keys).forEach(k => keys[k] = false);
-  $('finalScore').textContent = score;
-  $('extraLine').style.display = levelReached ? '' : 'none';
-  if (levelReached) $('finalLevel').textContent = levelReached;
-  show('gameOverScreen');
-}
-
-/* ================= SPACE INVADERS ================= */
-const invadersGame = {
-  title: '👾 SPACE INVADERS 👾',
-  hint: 'Hold 🔥 to fire',
+/* ============ SPACE INVADERS ============ */
+const invaders = {
+  title: '👾 SPACE INVADERS 👾', hint: 'Hold 🔥 to fire',
   showLevel: true, showLives: true, showFire: true,
-  rows: 4, cols: 8,
 
   init() {
     this.ship = { x: 144, y: 360, w: 32, h: 24, speed: 3 };
@@ -129,20 +101,19 @@ const invadersGame = {
     this.speed = 0.3 + Math.min(level - 1, 10) * 0.1;
     this.bullets = [];
     this.enemyBullets = [];
-    const top = 40 + Math.min(level - 1, 5) * 8;
     this.aliens = [];
-    for (let r = 0; r < this.rows; r++)
-      for (let c = 0; c < this.cols; c++)
+    const top = 40 + Math.min(level - 1, 5) * 8;
+    for (let r = 0; r < 4; r++)
+      for (let c = 0; c < 8; c++)
         this.aliens.push({ x: 30 + c * 35, y: top + r * 30, w: 24, h: 18, alive: true, type: r });
   },
-  shootChance() { return Math.min(0.02 + (level - 1) * 0.004, 0.05); },
   shoot() {
     if (!running || !this.canFire || this.bullets.length >= 3) return;
     this.bullets.push({ x: this.ship.x + this.ship.w / 2, y: this.ship.y });
     this.canFire = false;
     setTimeout(() => { this.canFire = true; }, 300);
   },
-  onButton(name) { if (name === 'fire') this.shoot(); },
+  onPress(name) { if (name === 'fire') this.shoot(); },
 
   update() {
     const s = this.ship;
@@ -162,12 +133,13 @@ const invadersGame = {
     }
     if (hitEdge) {
       this.dir *= -1;
-      this.aliens.forEach(a => a.y += 15);
+      this.aliens.forEach(a => { a.y += 15; });
       this.speed += 0.05;
     }
 
     const alive = this.aliens.filter(a => a.alive);
-    if (alive.length && Math.random() < this.shootChance()) {
+    const chance = Math.min(0.02 + (level - 1) * 0.004, 0.05);
+    if (alive.length && Math.random() < chance) {
       const a = alive[Math.floor(Math.random() * alive.length)];
       this.enemyBullets.push({ x: a.x + a.w / 2, y: a.y + a.h });
     }
@@ -178,7 +150,7 @@ const invadersGame = {
           a.alive = false; b.hit = true;
           score += (4 - a.type) * 10;
           updateHud();
-          haptic.tap();
+          buzz('impactOccurred', 'light');
         }
     this.bullets = this.bullets.filter(b => !b.hit);
 
@@ -187,7 +159,7 @@ const invadersGame = {
       updateHud();
       this.startLevel();
       this.banner = 90;
-      haptic.win();
+      buzz('notificationOccurred', 'success');
       return;
     }
 
@@ -196,7 +168,7 @@ const invadersGame = {
         b.hit = true;
         lives--;
         updateHud();
-        haptic.hurt();
+        buzz('notificationOccurred', 'error');
         if (lives <= 0) { endGame(level); return; }
       }
     this.enemyBullets = this.enemyBullets.filter(b => !b.hit);
@@ -234,7 +206,187 @@ const invadersGame = {
   }
 };
 
-/* ================= SNAKE ================= */
-const snakeGame = {
-  title: '🐍 SNAKE',
-  hint: 'Swipe, or use 
+/* ============ SNAKE ============ */
+const CELL = 20, GW = 16, GH = 20;
+const snake = {
+  title: '🐍 SNAKE', hint: '◀ ▶ turn left / right. Swipes and arrow keys work too.',
+  showLevel: false, showLives: false, showFire: false,
+
+  init() {
+    this.body = [{ x: 8, y: 10 }, { x: 7, y: 10 }, { x: 6, y: 10 }];
+    this.dir = { x: 1, y: 0 };
+    this.queue = [];
+    this.step = 140;
+    this.acc = 0;
+    this.food = this.placeFood();
+  },
+  placeFood() {
+    let p;
+    do { p = { x: Math.floor(Math.random() * GW), y: Math.floor(Math.random() * GH) }; }
+    while (this.body.some(s => s.x === p.x && s.y === p.y));
+    return p;
+  },
+  lastDir() { return this.queue.length ? this.queue[this.queue.length - 1] : this.dir; },
+  push(d) { if (this.queue.length < 2) this.queue.push(d); },
+  setDir(x, y) {
+    const b = this.lastDir();
+    if ((x === b.x && y === b.y) || (x === -b.x && y === -b.y)) return;
+    this.push({ x, y });
+  },
+  onPress(name) {
+    const b = this.lastDir();
+    if (name === 'left') this.push({ x: b.y, y: -b.x });
+    if (name === 'right') this.push({ x: -b.y, y: b.x });
+  },
+
+  update(dt) {
+    this.acc += Math.min(dt, 100);
+    while (this.acc >= this.step) {
+      this.acc -= this.step;
+      if (this.queue.length) this.dir = this.queue.shift();
+      const head = {
+        x: (this.body[0].x + this.dir.x + GW) % GW,
+        y: (this.body[0].y + this.dir.y + GH) % GH
+      };
+      const ate = head.x === this.food.x && head.y === this.food.y;
+      const solid = ate ? this.body : this.body.slice(0, -1);
+      if (solid.some(s => s.x === head.x && s.y === head.y)) { endGame(0); return; }
+      this.body.unshift(head);
+      if (ate) {
+        score += 10;
+        updateHud();
+        buzz('impactOccurred', 'light');
+        this.step = Math.max(70, this.step - 2);
+        this.food = this.placeFood();
+      } else {
+        this.body.pop();
+      }
+    }
+  },
+
+  draw() {
+    ctx.strokeStyle = '#062a10';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= GW; i++) { ctx.beginPath(); ctx.moveTo(i * CELL, 0); ctx.lineTo(i * CELL, GH * CELL); ctx.stroke(); }
+    for (let i = 0; i <= GH; i++) { ctx.beginPath(); ctx.moveTo(0, i * CELL); ctx.lineTo(GW * CELL, i * CELL); ctx.stroke(); }
+    ctx.fillStyle = '#f00';
+    ctx.fillRect(this.food.x * CELL + 3, this.food.y * CELL + 3, CELL - 6, CELL - 6);
+    this.body.forEach((s, i) => {
+      ctx.fillStyle = i === 0 ? '#0f0' : '#0a0';
+      ctx.fillRect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2);
+    });
+  }
+};
+
+/* ============ SHARED GAME FLOW ============ */
+const GAMES = { invaders, snake };
+
+function openGame(key) {
+  currentKey = key;
+  current = GAMES[key];
+  $('startTitle').textContent = current.title;
+  $('startHint').textContent = current.hint;
+  hide('menuScreen'); hide('gameOverScreen');
+  show('startScreen');
+}
+
+function startGame() {
+  score = 0; lives = 3; level = 1;
+  $('midStat').style.visibility = current.showLevel ? 'visible' : 'hidden';
+  $('livesStat').style.visibility = current.showLives ? 'visible' : 'hidden';
+  $('fireBtn').style.visibility = current.showFire ? 'visible' : 'hidden';
+  Object.keys(keys).forEach(k => { keys[k] = false; });
+  hide('startScreen'); hide('gameOverScreen');
+  current.init();
+  updateHud();
+  running = true;
+  lastT = performance.now();
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(loop);
+}
+
+function loop(t) {
+  if (!running) return;
+  const dt = t - lastT;
+  lastT = t;
+  current.update(dt);
+  if (!running) return;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  current.draw();
+  raf = requestAnimationFrame(loop);
+}
+
+function endGame(levelReached) {
+  if (!running) return;
+  running = false;
+  cancelAnimationFrame(raf);
+  Object.keys(keys).forEach(k => { keys[k] = false; });
+  $('finalScore').textContent = score;
+  $('extraLine').style.display = levelReached ? '' : 'none';
+  if (levelReached) $('finalLevel').textContent = levelReached;
+  show('gameOverScreen');
+}
+
+function toMenu() {
+  running = false;
+  cancelAnimationFrame(raf);
+  hide('startScreen'); hide('gameOverScreen');
+  show('menuScreen');
+}
+
+/* ============ INPUT ============ */
+function bindButton(id, name) {
+  const el = $(id);
+  const on = e => { e.preventDefault(); keys[name] = true; if (running && current.onPress) current.onPress(name); };
+  const off = e => { e.preventDefault(); keys[name] = false; };
+  el.addEventListener('touchstart', on);
+  el.addEventListener('touchend', off);
+  el.addEventListener('touchcancel', off);
+  el.addEventListener('mousedown', on);
+  el.addEventListener('mouseup', off);
+  el.addEventListener('mouseleave', off);
+}
+bindButton('leftBtn', 'left');
+bindButton('rightBtn', 'right');
+bindButton('fireBtn', 'fire');
+
+document.addEventListener('keydown', e => {
+  if (!running) return;
+  if (e.key === 'ArrowLeft') { keys.left = true; if (current === snake) snake.setDir(-1, 0); }
+  if (e.key === 'ArrowRight') { keys.right = true; if (current === snake) snake.setDir(1, 0); }
+  if (e.key === 'ArrowUp') { if (current === snake) snake.setDir(0, -1); else keys.fire = true; e.preventDefault(); }
+  if (e.key === 'ArrowDown') { if (current === snake) snake.setDir(0, 1); e.preventDefault(); }
+  if (e.key === ' ') { keys.fire = true; e.preventDefault(); }
+});
+document.addEventListener('keyup', e => {
+  if (e.key === 'ArrowLeft') keys.left = false;
+  if (e.key === 'ArrowRight') keys.right = false;
+  if (e.key === ' ' || e.key === 'ArrowUp') keys.fire = false;
+});
+
+// Swipes for Snake
+let tx = 0, ty = 0;
+canvas.addEventListener('touchstart', e => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; });
+canvas.addEventListener('touchend', e => {
+  if (!running || current !== snake) return;
+  const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;
+  if (Math.abs(dx) > Math.abs(dy)) snake.setDir(dx > 0 ? 1 : -1, 0);
+  else snake.setDir(0, dy > 0 ? 1 : -1);
+});
+
+/* ============ MENU BUTTONS ============ */
+document.querySelectorAll('.menuBtn').forEach(b => { b.onclick = () => openGame(b.dataset.game); });
+$('startBtn').onclick = startGame;
+$('restartBtn').onclick = startGame;
+$('backBtn').onclick = toMenu;
+$('menuBtn').onclick = toMenu;
+// sendData closes the Mini App, so it only runs on an explicit tap
+$('submitBtn').onclick = () => {
+  const payload = JSON.stringify({ game: currentKey, score, level });
+  if (tg) tg.sendData(payload); else alert('Open from Telegram to submit: ' + payload);
+};
+</script>
+</body>
+</html>
