@@ -45,6 +45,7 @@
     <h1>🕹️ ARCADE 🕹️</h1>
     <button class="alt menuBtn" data-game="invaders">👾 SPACE INVADERS</button>
     <button class="alt menuBtn" data-game="snake">🐍 SNAKE</button>
+    <button class="alt menuBtn" data-game="breakout">🧱 BREAKOUT</button>
   </div>
 
   <div id="startScreen" class="overlay hidden">
@@ -278,8 +279,157 @@ const snake = {
   }
 };
 
+/* ============ BREAKOUT ============ */
+const B_STEP = 1000 / 60;   // fixed 60 ticks per second on any screen
+const breakout = {
+  title: '🧱 BREAKOUT', hint: 'Hold ◀ ▶ or drag your finger to move the paddle.',
+  showLevel: true, showLives: true, showFire: false,
+  R: 4, BW: 34, BH: 14, GAP: 3, COLS: 8, TOP: 50, X0: 13,
+  colors: ['#ff3b3b', '#ff8c3b', '#ffd83b', '#3bff5a', '#3bdcff', '#3b82ff', '#d93bff'],
+
+  init() {
+    this.paddle = { x: 132, y: 380, w: 56, h: 8 };
+    this.acc = 0;
+    this.banner = 0;
+    this.startLevel();
+  },
+  startLevel() {
+    this.speed = Math.min(3.2 + (level - 1) * 0.3, 6);
+    const rows = Math.min(3 + level, 7);
+    this.bricks = [];
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < this.COLS; c++)
+        this.bricks.push({
+          x: this.X0 + c * (this.BW + this.GAP),
+          y: this.TOP + r * (this.BH + this.GAP),
+          row: r, alive: true
+        });
+    this.resetBall();
+  },
+  resetBall() {
+    const p = this.paddle;
+    this.bx = p.x + p.w / 2;
+    this.by = p.y - this.R;
+    this.vx = 0;
+    this.vy = 0;
+    this.serve = 45;   // short pause before the ball launches
+  },
+  launch() {
+    const a = (Math.random() < 0.5 ? -1 : 1) * (0.25 + Math.random() * 0.35);
+    this.vx = this.speed * Math.sin(a);
+    this.vy = -this.speed * Math.cos(a);
+  },
+  setSpeed(s) {
+    const m = Math.hypot(this.vx, this.vy) || 1;
+    this.vx *= s / m;
+    this.vy *= s / m;
+  },
+
+  update(dt) {
+    this.acc += Math.min(dt, 100);
+    while (this.acc >= B_STEP) {
+      this.acc -= B_STEP;
+      this.tick();
+      if (!running) return;
+    }
+  },
+
+  tick() {
+    const p = this.paddle, R = this.R;
+    if (keys.left) p.x -= 5;
+    if (keys.right) p.x += 5;
+    p.x = Math.max(0, Math.min(canvas.width - p.w, p.x));
+
+    if (this.serve > 0) {
+      this.bx = p.x + p.w / 2;
+      this.by = p.y - R;
+      this.serve--;
+      if (this.serve === 0) this.launch();
+      return;
+    }
+
+    this.bx += this.vx;
+    this.by += this.vy;
+
+    // walls and ceiling
+    if (this.bx - R < 0) { this.bx = R; this.vx = Math.abs(this.vx); }
+    if (this.bx + R > canvas.width) { this.bx = canvas.width - R; this.vx = -Math.abs(this.vx); }
+    if (this.by - R < 0) { this.by = R; this.vy = Math.abs(this.vy); }
+
+    // ball lost
+    if (this.by - R > canvas.height) {
+      lives--;
+      updateHud();
+      buzz('notificationOccurred', 'error');
+      if (lives <= 0) { endGame(level); return; }
+      this.resetBall();
+      return;
+    }
+
+    // paddle: where the ball lands sets the bounce angle
+    if (this.vy > 0 && this.by + R >= p.y && this.by - R <= p.y + p.h &&
+        this.bx >= p.x - R && this.bx <= p.x + p.w + R) {
+      const hit = Math.max(-1, Math.min(1, (this.bx - (p.x + p.w / 2)) / (p.w / 2)));
+      const a = hit * 1.05;   // up to about 60 degrees from vertical
+      this.vx = this.speed * Math.sin(a);
+      this.vy = -this.speed * Math.cos(a);
+      this.by = p.y - R;
+    }
+
+    // bricks: at most one per tick
+    for (const b of this.bricks) {
+      if (!b.alive) continue;
+      const nx = Math.max(b.x, Math.min(this.bx, b.x + this.BW));
+      const ny = Math.max(b.y, Math.min(this.by, b.y + this.BH));
+      if ((this.bx - nx) ** 2 + (this.by - ny) ** 2 > R * R) continue;
+      b.alive = false;
+      const ox = Math.min(this.bx + R - b.x, b.x + this.BW - (this.bx - R));
+      const oy = Math.min(this.by + R - b.y, b.y + this.BH - (this.by - R));
+      if (ox < oy) this.vx = -this.vx; else this.vy = -this.vy;
+      score += (7 - b.row) * 10;
+      updateHud();
+      buzz('impactOccurred', 'light');
+      this.speed = Math.min(this.speed + 0.03, 7);
+      this.setSpeed(this.speed);
+      break;
+    }
+
+    // level cleared
+    if (this.bricks.every(b => !b.alive)) {
+      level++;
+      updateHud();
+      this.startLevel();
+      this.banner = 90;
+      buzz('notificationOccurred', 'success');
+    }
+  },
+
+  draw() {
+    for (const b of this.bricks) {
+      if (!b.alive) continue;
+      ctx.fillStyle = this.colors[b.row];
+      ctx.fillRect(b.x, b.y, this.BW, this.BH);
+    }
+    const p = this.paddle;
+    ctx.fillStyle = '#0f0';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(this.bx, this.by, this.R, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (this.banner > 0) {
+      ctx.fillStyle = '#0f0';
+      ctx.font = 'bold 28px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('LEVEL ' + level, canvas.width / 2, canvas.height / 2 + 60);
+      this.banner--;
+    }
+  }
+};
+ 
 /* ============ SHARED GAME FLOW ============ */
-const GAMES = { invaders, snake };
+const GAMES = { invaders, snake, breakout };
 
 function openGame(key) {
   currentKey = key;
@@ -376,6 +526,18 @@ canvas.addEventListener('touchend', e => {
   else snake.setDir(0, dy > 0 ? 1 : -1);
 });
 
+// Drag a finger to move the Breakout paddle
+function dragPaddle(e) {
+  if (!running || current !== breakout) return;
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const x = (e.touches[0].clientX - r.left - canvas.clientLeft) * canvas.width / canvas.clientWidth;
+  const p = breakout.paddle;
+  p.x = Math.max(0, Math.min(canvas.width - p.w, x - p.w / 2));
+}
+canvas.addEventListener('touchstart', dragPaddle, { passive: false });
+canvas.addEventListener('touchmove', dragPaddle, { passive: false });
+ 
 /* ============ MENU BUTTONS ============ */
 document.querySelectorAll('.menuBtn').forEach(b => { b.onclick = () => openGame(b.dataset.game); });
 $('startBtn').onclick = startGame;
