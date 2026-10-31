@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Space Invaders</title>
+<title>Arcade</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
   body { background: #000; display: flex; flex-direction: column; align-items: center;
@@ -18,18 +18,21 @@
          align-items: center; justify-content: center; }
   #fireBtn { width: 90px; }
   .btn:active { background: #0f0; color: #000; }
-  .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); display: flex;
+  .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.95); display: flex;
              flex-direction: column; align-items: center; justify-content: center; color: #0f0; gap: 15px; }
   .overlay h1 { font-size: 24px; }
   .overlay button { padding: 15px 30px; font-size: 18px; background: #0f0; color: #000;
                     border: none; cursor: pointer; font-family: inherit; font-weight: bold; }
+  .menuBtn { width: 260px; padding: 18px; font-size: 16px; background: #111; color: #0f0;
+             border: 2px solid #0f0; font-family: inherit; cursor: pointer; }
+  .menuBtn:active { background: #0f0; color: #000; }
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
   <div id="ui">
     <span>SCORE: <span id="score">0</span></span>
-    <span>LEVEL: <span id="level">1</span></span>
+    <span id="midStatWrap">LEVEL: <span id="level">1</span></span>
     <span>LIVES: <span id="lives">3</span></span>
   </div>
   <canvas id="gameCanvas" width="320" height="400"></canvas>
@@ -41,17 +44,25 @@
     </div>
   </div>
 
-  <div id="startScreen" class="overlay">
-    <h1>👾 SPACE INVADERS 👾</h1>
+  <!-- Game select -->
+  <div id="menuScreen" class="overlay">
+    <h1>🕹️ ARCADE 🕹️</h1>
+    <button class="menuBtn" data-game="invaders">👾 SPACE INVADERS</button>
+    <button class="menuBtn" data-game="snake">🐍 SNAKE</button>
+  </div>
+
+  <div id="startScreen" class="overlay hidden">
+    <h1 id="startTitle">GAME</h1>
     <button id="startBtn">START GAME</button>
   </div>
 
   <div id="gameOverScreen" class="overlay hidden">
     <h1>GAME OVER</h1>
     <p>Final Score: <span id="finalScore">0</span></p>
-    <p>Level Reached: <span id="finalLevel">1</span></p>
+    <p id="extraLine">Level Reached: <span id="finalLevel">1</span></p>
     <button id="restartBtn">PLAY AGAIN</button>
     <button id="submitBtn">SUBMIT SCORE</button>
+    <button id="menuBtn">MAIN MENU</button>
   </div>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -62,27 +73,135 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-let gameRunning = false, score = 0, lives = 3, level = 1, animationId;
-let bannerFrames = 0;
-const player = { x: 144, y: 360, width: 32, height: 24, speed: 3 };
-let bullets = [], invaderBullets = [], invaders = [];
-const rows = 4, cols = 8;
-let dir = 1, speed = 0.3;
-const keys = { left: false, right: false, fire: false };
+// Shared state
+let currentGame = null, running = false, score = 0, lives = 3, level = 1, animationId;
+const keys = { left: false, right: false, up: false, down: false, fire: false };
 let canFire = true;
 
-// Difficulty scaling per level
-function levelSpeed()  { return 0.3 + Math.min(level - 1, 10) * 0.1; }
-function shootChance() { return Math.min(0.02 + (level - 1) * 0.004, 0.05); }
-function startY()      { return 40 + Math.min(level - 1, 5) * 8; }
-
-function initInvaders() {
-  invaders = [];
-  const top = startY();
-  for (let r = 0; r < rows; r++)
-    for (let c = 0; c < cols; c++)
-      invaders.push({ x: 30 + c * 35, y: top + r * 30, width: 24, height: 18, alive: true, type: r });
+function setUI(cfg) {
+  document.getElementById('midStatWrap').style.visibility = cfg.midLabel ? 'visible' : 'hidden';
+  document.getElementById('midStatWrap').firstChild.textContent = cfg.midLabel + ': ';
 }
+function show(id) { document.getElementById(id).classList.remove('hidden'); }
+function hide(id) { document.getElementById(id).classList.add('hidden'); }
+function toMenu() {
+  stopLoop();
+  hide('startScreen'); hide('gameOverScreen');
+  show('menuScreen');
+}
+function stopLoop() { running = false; cancelAnimationFrame(animationId); }
+function endGame(extra) {
+  if (!running) return;
+  running = false;
+  Object.keys(keys).forEach(k => keys[k] = false);
+  cancelAnimationFrame(animationId);
+  document.getElementById('finalScore').textContent = score;
+  document.getElementById('extraLine').style.display = extra ? '' : 'none';
+  if (extra) document.getElementById('finalLevel').textContent = extra;
+  show('gameOverScreen');
+}
+
+/* ---------------- SPACE INVADERS ---------------- */
+const invadersGame = {
+  title: '👾 SPACE INVADERS 👾', midLabel: 'LEVEL', needsFire: true,
+
+  init() {
+    lives = 3; level = 1; bannerFrames = 0;
+    bullets = []; invaderBullets = []; dir = 1; speed = this.levelSpeed(); player.x = 144;
+    this.initInvaders();
+  },
+  hud() {
+    document.getElementById('lives').textContent = lives;
+    document.getElementById('level').textContent = level;
+  },
+  gameOver() { endGame(level); },
+
+  // --- original logic, unchanged ---
+  player: null,
+  levelSpeed()  { return 0.3 + Math.min(level - 1, 10) * 0.1; },
+  shootChance() { return Math.min(0.02 + (level - 1) * 0.004, 0.05); },
+  startY()      { return 40 + Math.min(level - 1, 5) * 8; },
+  initInvaders() {
+    invaders = [];
+    const top = this.startY();
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++)
+        invaders.push({ x: 30 + c * 35, y: top + r * 30, width: 24, height: 18, alive: true, type: r });
+  },
+  update() {
+    if (keys.fire) fire();
+    if (keys.left && player.x > 0) player.x -= player.speed;
+    if (keys.right && player.x < canvas.width - player.width) player.x += player.speed;
+
+    bullets = bullets.filter(b => (b.y -= 5) > 0);
+    invaderBullets = invaderBullets.filter(b => (b.y += 3) < canvas.height);
+
+    let hitEdge = false;
+    for (const i of invaders) {
+      if (!i.alive) continue;
+      i.x += dir * speed;
+      if (i.x <= 5 || i.x >= canvas.width - i.width - 5) hitEdge = true;
+      if (i.y + i.height >= player.y) { this.gameOver(); return; }
+    }
+    if (hitEdge) { dir *= -1; invaders.forEach(i => i.y += 15); speed += 0.05; }
+
+    const alive = invaders.filter(i => i.alive);
+    if (alive.length && Math.random() < this.shootChance()) {
+      const s = alive[Math.floor(Math.random() * alive.length)];
+      invaderBullets.push({ x: s.x + s.width / 2, y: s.y + s.height });
+    }
+
+    for (const b of bullets)
+      for (const i of invaders)
+        if (i.alive && b.x > i.x && b.x < i.x + i.width && b.y > i.y && b.y < i.y + i.height) {
+          i.alive = false; b.hit = true;
+          score += (4 - i.type) * 10;
+          document.getElementById('score').textContent = score;
+          tg.HapticFeedback?.impactOccurred('light');
+        }
+    bullets = bullets.filter(b => !b.hit);
+
+    if (invaders.every(i => !i.alive)) { this.nextLevel(); return; }
+
+    for (const b of invaderBullets)
+      if (b.x > player.x && b.x < player.x + player.width && b.y > player.y && b.y < player.y + player.height) {
+        b.hit = true; lives--;
+        document.getElementById('lives').textContent = lives;
+        tg.HapticFeedback?.notificationOccurred('error');
+        if (lives <= 0) { this.gameOver(); return; }
+      }
+    invaderBullets = invaderBullets.filter(b => !b.hit);
+  },
+  nextLevel() {
+    level++;
+    document.getElementById('level').textContent = level;
+    bullets = []; invaderBullets = []; dir = 1; speed = this.levelSpeed();
+    this.initInvaders();
+    bannerFrames = 90;
+    tg.HapticFeedback?.notificationOccurred('success');
+  },
+  draw() {
+    drawPlayer();
+    invaders.forEach(drawInvader);
+    ctx.fillStyle = '#0f0';
+    bullets.forEach(b => ctx.fillRect(b.x, b.y, 3, 10));
+    ctx.fillStyle = '#f00';
+    invaderBullets.forEach(b => ctx.fillRect(b.x, b.y, 3, 8));
+    if (bannerFrames > 0) {
+      ctx.fillStyle = '#0f0';
+      ctx.font = 'bold 28px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('LEVEL ' + level, canvas.width / 2, canvas.height / 2);
+      bannerFrames--;
+    }
+  }
+};
+
+// Invaders-only helpers and state
+let player = { x: 144, y: 360, width: 32, height: 24, speed: 3 };
+let bullets = [], invaderBullets = [], invaders = [], bannerFrames = 0;
+const rows = 4, cols = 8;
+let dir = 1, speed = 0.3;
 
 function drawPlayer() {
   ctx.fillStyle = '#0f0';
@@ -91,7 +210,6 @@ function drawPlayer() {
   ctx.fillRect(player.x, player.y + 16, 4, 8);
   ctx.fillRect(player.x + 28, player.y + 16, 4, 8);
 }
-
 function drawInvader(i) {
   if (!i.alive) return;
   ctx.fillStyle = ['#f0f', '#f00', '#ff0', '#0ff'][i.type];
@@ -100,170 +218,73 @@ function drawInvader(i) {
   ctx.fillRect(i.x + 2, i.y + 12, 4, 6);
   ctx.fillRect(i.x + 18, i.y + 12, 4, 6);
 }
-
-function nextLevel() {
-  level++;
-  document.getElementById('level').textContent = level;
-  bullets = [];
-  invaderBullets = [];
-  dir = 1;
-  speed = levelSpeed();
-  initInvaders();
-  bannerFrames = 90; // about 1.5 seconds at 60fps
-  tg.HapticFeedback?.notificationOccurred('success');
-}
-
-function update() {
-  if (keys.fire) fire();
-  if (keys.left && player.x > 0) player.x -= player.speed;
-  if (keys.right && player.x < canvas.width - player.width) player.x += player.speed;
-
-  bullets = bullets.filter(b => (b.y -= 5) > 0);
-  invaderBullets = invaderBullets.filter(b => (b.y += 3) < canvas.height);
-
-  let hitEdge = false;
-  for (const i of invaders) {
-    if (!i.alive) continue;
-    i.x += dir * speed;
-    if (i.x <= 5 || i.x >= canvas.width - i.width - 5) hitEdge = true;
-    if (i.y + i.height >= player.y) { gameOver(); return; }
-  }
-  if (hitEdge) {
-    dir *= -1;
-    invaders.forEach(i => i.y += 15);
-    speed += 0.05;
-  }
-
-  const alive = invaders.filter(i => i.alive);
-  if (alive.length && Math.random() < shootChance()) {
-    const s = alive[Math.floor(Math.random() * alive.length)];
-    invaderBullets.push({ x: s.x + s.width / 2, y: s.y + s.height });
-  }
-
-  // player bullets vs invaders
-  for (const b of bullets)
-    for (const i of invaders)
-      if (i.alive && b.x > i.x && b.x < i.x + i.width && b.y > i.y && b.y < i.y + i.height) {
-        i.alive = false; b.hit = true;
-        score += (4 - i.type) * 10;
-        document.getElementById('score').textContent = score;
-        tg.HapticFeedback?.impactOccurred('light');
-      }
-  bullets = bullets.filter(b => !b.hit);
-
-  if (invaders.every(i => !i.alive)) { nextLevel(); return; }
-
-  // invader bullets vs player
-  for (const b of invaderBullets)
-    if (b.x > player.x && b.x < player.x + player.width && b.y > player.y && b.y < player.y + player.height) {
-      b.hit = true; lives--;
-      document.getElementById('lives').textContent = lives;
-      tg.HapticFeedback?.notificationOccurred('error');
-      if (lives <= 0) { gameOver(); return; }
-    }
-  invaderBullets = invaderBullets.filter(b => !b.hit);
-}
-
-function draw() {
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  drawPlayer();
-  invaders.forEach(drawInvader);
-  ctx.fillStyle = '#0f0';
-  bullets.forEach(b => ctx.fillRect(b.x, b.y, 3, 10));
-  ctx.fillStyle = '#f00';
-  invaderBullets.forEach(b => ctx.fillRect(b.x, b.y, 3, 8));
-
-  if (bannerFrames > 0) {
-    ctx.fillStyle = '#0f0';
-    ctx.font = 'bold 28px "Courier New", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('LEVEL ' + level, canvas.width / 2, canvas.height / 2);
-    bannerFrames--;
-  }
-}
-
-function loop() {
-  if (!gameRunning) return;
-  update();
-  if (!gameRunning) return;
-  draw();
-  animationId = requestAnimationFrame(loop);
-}
-
-function gameOver() {
-  if (!gameRunning) return;
-  gameRunning = false;
-  keys.fire = false; keys.left = false; keys.right = false;
-  cancelAnimationFrame(animationId);
-  document.getElementById('finalScore').textContent = score;
-  document.getElementById('finalLevel').textContent = level;
-  document.getElementById('gameOverScreen').classList.remove('hidden');
-}
-
 function fire() {
-  if (!gameRunning || !canFire || bullets.length >= 3) return;
+  if (!running || !canFire || bullets.length >= 3) return;
   bullets.push({ x: player.x + player.width / 2, y: player.y });
   canFire = false;
   setTimeout(() => canFire = true, 300);
 }
 
-function startGame() {
-  score = 0; lives = 3; level = 1; bannerFrames = 0;
-  bullets = []; invaderBullets = [];
-  dir = 1; speed = levelSpeed(); player.x = 144;
-  document.getElementById('score').textContent = score;
-  document.getElementById('level').textContent = level;
-  document.getElementById('lives').textContent = lives;
-  document.getElementById('startScreen').classList.add('hidden');
-  document.getElementById('gameOverScreen').classList.add('hidden');
-  initInvaders();
-  gameRunning = true;
-  loop();
+/* ---------------- SNAKE ---------------- */
+const GRID = 16, CELL = 20;
+const snakeGame = {
+  title: '🐍 SNAKE', midLabel: '', needsFire: false,
+  init() {
+    snake = [{ x: 8, y: 12 }];
+    dirv = { x: 1, y: 0 }; pending = { x: 1, y: 0 };
+    food = placeFood(); stepMs = 140; acc = 0; lastT = 0;
+  },
+  hud() { document.getElementById('lives').textContent = '-'; },
+  gameOver() { endGame(null); },
+  update(dt) {
+    acc += dt;
+    while (acc >= stepMs) {
+      acc -= stepMs;
+      dirv = pending;
+      const head = { x: snake[0].x + dirv.x, y: snake[0].y + dirv.y };
+      // wall wrap
+      head.x = (head.x + GRID) % GRID;
+      head.y = (head.y + GRID) % GRID;
+      if (snake.some(s => s.x === head.x && s.y === head.y)) { this.gameOver(); return; }
+      snake.unshift(head);
+      if (head.x === food.x && head.y === food.y) {
+        score += 10;
+        document.getElementById('score').textContent = score;
+        tg.HapticFeedback?.impactOccurred('light');
+        food = placeFood();
+        stepMs = Math.max(70, stepMs - 2);
+      } else {
+        snake.pop();
+      }
+    }
+  },
+  draw() {
+    ctx.strokeStyle = '#083314';
+    ctx.lineWidth = 1;
+    for (let n = 0; n <= GRID; n++) {
+      ctx.beginPath(); ctx.moveTo(n * CELL, 0); ctx.lineTo(n * CELL, GRID * CELL); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, n * CELL); ctx.lineTo(GRID * CELL, n * CELL); ctx.stroke();
+    }
+    ctx.fillStyle = '#f00';
+    ctx.fillRect(food.x * CELL + 3, food.y * CELL + 3, CELL - 6, CELL - 6);
+    snake.forEach((s, idx) => {
+      ctx.fillStyle = idx === 0 ? '#0f0' : '#0a0';
+      ctx.fillRect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2);
+    });
+  }
+};
+let snake = [], dirv = { x: 1, y: 0 }, pending = { x: 1, y: 0 }, food = null, stepMs = 140, acc = 0, lastT = 0;
+function placeFood() {
+  let p;
+  do { p = { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) }; }
+  while (snake.some(s => s.x === p.x && s.y === p.y));
+  return p;
 }
 
-document.getElementById('startBtn').onclick = startGame;
-document.getElementById('restartBtn').onclick = startGame;
-// sendData closes the Mini App, so only do it on an explicit tap
-document.getElementById('submitBtn').onclick = () => tg.sendData(JSON.stringify({ score, level }));
+/* ---------------- GAME REGISTRY & LOOP ---------------- */
+const GAMES = { invaders: invadersGame, snake: snakeGame };
 
-// Movement buttons (hold to move)
-function hold(id, key) {
-  const el = document.getElementById(id);
-  const on = e => { e.preventDefault(); keys[key] = true; };
-  const off = e => { e.preventDefault(); keys[key] = false; };
-  el.addEventListener('touchstart', on);
-  el.addEventListener('touchend', off);
-  el.addEventListener('touchcancel', off);
-  el.addEventListener('mousedown', on);
-  el.addEventListener('mouseup', off);
-  el.addEventListener('mouseleave', off);
-}
-hold('leftBtn', 'left');
-hold('rightBtn', 'right');
-
-// Fire button (hold to autofire)
-const fireBtn = document.getElementById('fireBtn');
-const fireOn = e => { e.preventDefault(); keys.fire = true; fire(); };
-const fireOff = e => { e.preventDefault(); keys.fire = false; };
-fireBtn.addEventListener('touchstart', fireOn);
-fireBtn.addEventListener('touchend', fireOff);
-fireBtn.addEventListener('touchcancel', fireOff);
-fireBtn.addEventListener('mousedown', fireOn);
-fireBtn.addEventListener('mouseup', fireOff);
-fireBtn.addEventListener('mouseleave', fireOff);
-
-// Keyboard (for desktop testing)
-document.addEventListener('keydown', e => {
-  if (e.key === 'ArrowLeft') keys.left = true;
-  if (e.key === 'ArrowRight') keys.right = true;
-  if (e.key === ' ' || e.key === 'ArrowUp') { e.preventDefault(); keys.fire = true; }
-});
-document.addEventListener('keyup', e => {
-  if (e.key === 'ArrowLeft') keys.left = false;
-  if (e.key === 'ArrowRight') keys.right = false;
-  if (e.key === ' ' || e.key === 'ArrowUp') keys.fire = false;
-});
-</script>
-</body>
-</html>
+function loop(t) {
+  if (!running) return;
+  const dt = lastT ? t - lastT : 16;
+  last
