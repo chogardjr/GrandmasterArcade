@@ -15,6 +15,28 @@
   .btn { width: 70px; height: 50px; background: #222; border: 2px solid #0f0; color: #0f0; font-size: 20px;
          border-radius: 10px; user-select: none; display: flex; align-items: center; justify-content: center; }
   #fireBtn { width: 90px; }
+  #collapseBtn {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 60px;
+  background: #222;
+  border: 2px solid #0f0;
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  color: #0f0;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+#collapseBtn:active { background: #0f0; color: #000; }
+#collapseBtn.collapsed::after { content: '◀'; }
+#collapseBtn:not(.collapsed)::after { content: '▶'; }
+
   .btn:active { background: #0f0; color: #000; }
   .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.95); display: flex; flex-direction: column;
              align-items: center; justify-content: center; color: #0f0; gap: 15px; text-align: center; }
@@ -33,6 +55,7 @@
     <span id="livesStat">LIVES: <span id="lives">3</span></span>
   </div>
   <canvas id="gameCanvas" width="320" height="400"></canvas>
+  <div id="collapseBtn"></div>
   <div id="controls">
     <div class="btn" id="fireBtn">🔥</div>
     <div id="moveBtns">
@@ -73,6 +96,7 @@ const canvas = $('gameCanvas'), ctx = canvas.getContext('2d');
 // Telegram is optional, so the game also runs in a normal browser
 const tg = window.Telegram && window.Telegram.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
+if (tg && tg.disableVerticalSwipes) tg.disableVerticalSwipes();
 function buzz(type, kind) { try { tg.HapticFeedback[type](kind); } catch (e) {} }
 
 let current = null, currentKey = null, running = false, raf = 0, lastT = 0;
@@ -613,10 +637,11 @@ function openGame(key) {
 }
 
 function startGame() {
-  score = 0; lives = 3; level = 1;
+  score = 0; lives = 3; level = 1; bannerMsg = '';
   $('midStat').style.visibility = current.showLevel ? 'visible' : 'hidden';
   $('livesStat').style.visibility = current.showLives ? 'visible' : 'hidden';
   $('fireBtn').style.visibility = current.showFire ? 'visible' : 'hidden';
+  setControlsVisible(true);
   Object.keys(keys).forEach(k => { keys[k] = false; });
   hide('startScreen'); hide('gameOverScreen');
   current.init();
@@ -642,6 +667,7 @@ function loop(t) {
 function endGame(levelReached) {
   if (!running) return;
   running = false;
+  setControlsVisible(true);
   cancelAnimationFrame(raf);
   Object.keys(keys).forEach(k => { keys[k] = false; });
   $('finalScore').textContent = score;
@@ -652,6 +678,7 @@ function endGame(levelReached) {
 
 function toMenu() {
   running = false;
+  setControlsVisible(true);
   cancelAnimationFrame(raf);
   hide('startScreen'); hide('gameOverScreen');
   show('menuScreen');
@@ -687,28 +714,79 @@ document.addEventListener('keyup', e => {
   if (e.key === ' ' || e.key === 'ArrowUp') keys.fire = false;
 });
 
-// Swipes for Snake
+// Swipes for Snake (work anywhere on the screen)
 let tx = 0, ty = 0;
-canvas.addEventListener('touchstart', e => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; });
-canvas.addEventListener('touchend', e => {
-  if (!running || current !== snake) return;
+document.addEventListener('touchstart', e => {
+  if (e.target.closest('.btn')) return;
+  tx = e.changedTouches[0].clientX; ty = e.changedTouches[0].clientY;
+});
+document.addEventListener('touchend', e => {
+  if (!running || current !== snake || e.target.closest('.btn')) return;
   const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
   if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;
   if (Math.abs(dx) > Math.abs(dy)) snake.setDir(dx > 0 ? 1 : -1, 0);
   else snake.setDir(0, dy > 0 ? 1 : -1);
 });
 
-// Drag a finger to move the paddle (Breakout and Pong)
-function dragPaddle(e) {
-  if (!running || (current !== breakout && current !== pong)) return;
-  e.preventDefault();
-  const r = canvas.getBoundingClientRect();
-  const x = (e.touches[0].clientX - r.left - canvas.clientLeft) * canvas.width / canvas.clientWidth;
-  const p = current.paddle;
-  p.x = Math.max(0, Math.min(canvas.width - p.w, x - p.w / 2));
+/* ============ COLLAPSE / RESTORE ============ */
+const collapseBtn = $('collapseBtn');
+const controls = $('controls');
+let controlsHidden = false, holdTimer = null;
+
+function setControlsVisible(show) {
+  controlsHidden = !show;
+  controls.style.display = show ? 'flex' : 'none';
+  collapseBtn.classList.toggle('collapsed', !show);
+  if (!show) keys.left = keys.right = keys.fire = false;   // don't leave a button stuck on
 }
-canvas.addEventListener('touchstart', dragPaddle, { passive: false });
-canvas.addEventListener('touchmove', dragPaddle, { passive: false });
+
+function tabDown(e) {
+  e.preventDefault();
+  e.stopPropagation();   // keeps the paddle drag and snake swipe from starting here
+  if (controlsHidden) holdTimer = setTimeout(() => setControlsVisible(true), 500);
+  else setControlsVisible(false);
+}
+function tabUp(e) { e.stopPropagation(); clearTimeout(holdTimer); }
+
+collapseBtn.addEventListener('touchstart', tabDown, { passive: false });
+collapseBtn.addEventListener('touchend', tabUp);
+collapseBtn.addEventListener('touchcancel', tabUp);
+collapseBtn.addEventListener('mousedown', tabDown);
+collapseBtn.addEventListener('mouseup', tabUp);
+collapseBtn.addEventListener('mouseleave', tabUp);
+
+// Drag anywhere on screen to move the paddle (Breakout and Pong).
+// Relative: the paddle follows how far your finger moves, not where it is.
+const DRAG_GAIN = 1.5;   // paddle movement per finger movement; raise for more sensitivity
+let dragId = null, dragX = 0;
+const paddleGame = () => running && (current === breakout || current === pong);
+
+document.addEventListener('touchstart', e => {
+  if (!paddleGame() || dragId !== null || e.target.closest('.btn')) return;
+  const t = e.changedTouches[0];
+  dragId = t.identifier;
+  dragX = t.clientX;
+});
+
+document.addEventListener('touchmove', e => {
+  if (dragId === null) return;
+  for (const t of e.changedTouches) {
+    if (t.identifier !== dragId) continue;
+    e.preventDefault();
+    if (!paddleGame()) { dragId = null; return; }
+    const scale = canvas.width / canvas.clientWidth;
+    const p = current.paddle;
+    p.x += (t.clientX - dragX) * scale * DRAG_GAIN;
+    p.x = Math.max(0, Math.min(canvas.width - p.w, p.x));
+    dragX = t.clientX;
+  }
+}, { passive: false });
+
+function endDrag(e) {
+  for (const t of e.changedTouches) if (t.identifier === dragId) dragId = null;
+}
+document.addEventListener('touchend', endDrag);
+document.addEventListener('touchcancel', endDrag);
  
 /* ============ MENU BUTTONS ============ */
 document.querySelectorAll('.menuBtn').forEach(b => { b.onclick = () => openGame(b.dataset.game); });
