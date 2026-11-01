@@ -46,6 +46,7 @@
     <button class="alt menuBtn" data-game="invaders">👾 SPACE INVADERS</button>
     <button class="alt menuBtn" data-game="snake">🐍 SNAKE</button>
     <button class="alt menuBtn" data-game="breakout">🧱 BREAKOUT</button>
+	<button class="alt menuBtn" data-game="pong">🏓 PONG</button>
   </div>
 
   <div id="startScreen" class="overlay hidden">
@@ -427,9 +428,160 @@ const breakout = {
     }
   }
 };
+
+/* ============ PONG ============ */
+const pong = {
+  title: '🏓 PONG', hint: 'Beat the CPU paddle. Hold ◀ ▶ or drag your finger.',
+  showLevel: true, showLives: true, showFire: false,
+  R: 5, WIN: 5,   // ball radius, points needed to clear a level
+
+  init() {
+    this.paddle = { x: 132, y: 380, w: 56, h: 8 };
+    this.cpu = { x: 132, y: 12, w: 56, h: 8 };
+    this.acc = 0;
+    this.banner = 0;
+    this.lvlPoints = 0;
+    this.aim = 0;
+    this.setLevel();
+    this.serveBall(1);
+  },
+  setLevel() {
+    this.base = Math.min(3.2 + (level - 1) * 0.35, 6);
+    this.cpuSpeed = Math.min(1.8 + (level - 1) * 0.35, 4.6);
+  },
+  serveBall(dir) {
+    this.bx = canvas.width / 2;
+    this.by = canvas.height / 2;
+    this.vx = 0;
+    this.vy = 0;
+    this.speed = this.base;
+    this.serveDir = dir;   // 1 = toward you, -1 = toward the CPU
+    this.serve = 45;       // short pause before the ball launches
+  },
+  launch() {
+    const a = (Math.random() < 0.5 ? -1 : 1) * (0.3 + Math.random() * 0.4);
+    this.vx = this.speed * Math.sin(a);
+    this.vy = this.serveDir * this.speed * Math.cos(a);
+  },
+
+  update(dt) {
+    this.acc += Math.min(dt, 100);
+    while (this.acc >= B_STEP) {
+      this.acc -= B_STEP;
+      this.tick();
+      if (!running) return;
+    }
+  },
+
+  tick() {
+    const p = this.paddle, c = this.cpu, R = this.R;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+    // your paddle
+    if (keys.left) p.x -= 5;
+    if (keys.right) p.x += 5;
+    p.x = clamp(p.x, 0, canvas.width - p.w);
+
+    // CPU paddle: chases the ball with a capped speed and a small aiming error
+    const target = (this.vy < 0 ? this.bx - this.aim : canvas.width / 2) - c.w / 2;
+    c.x += clamp(target - c.x, -this.cpuSpeed, this.cpuSpeed);
+    c.x = clamp(c.x, 0, canvas.width - c.w);
+
+    if (this.serve > 0) {
+      this.serve--;
+      if (this.serve === 0) this.launch();
+      return;
+    }
+
+    this.bx += this.vx;
+    this.by += this.vy;
+
+    // side walls
+    if (this.bx - R < 0) { this.bx = R; this.vx = Math.abs(this.vx); }
+    if (this.bx + R > canvas.width) { this.bx = canvas.width - R; this.vx = -Math.abs(this.vx); }
+
+    // your paddle: where the ball lands sets the bounce angle
+    if (this.vy > 0 && this.by + R >= p.y && this.by - R <= p.y + p.h &&
+        this.bx >= p.x - R && this.bx <= p.x + p.w + R) {
+      const hit = clamp((this.bx - (p.x + p.w / 2)) / (p.w / 2), -1, 1);
+      const a = hit * 1.05;
+      this.speed = Math.min(this.speed + 0.15, this.base + 2);
+      this.vx = this.speed * Math.sin(a);
+      this.vy = -this.speed * Math.cos(a);
+      this.by = p.y - R;
+      this.aim = (Math.random() * 2 - 1) * c.w * 0.4;   // new CPU aiming error
+      buzz('impactOccurred', 'light');
+    }
+
+    // CPU paddle
+    if (this.vy < 0 && this.by - R <= c.y + c.h && this.by + R >= c.y &&
+        this.bx >= c.x - R && this.bx <= c.x + c.w + R) {
+      const hit = clamp((this.bx - (c.x + c.w / 2)) / (c.w / 2), -1, 1);
+      const a = hit * 1.05;
+      this.vx = this.speed * Math.sin(a);
+      this.vy = this.speed * Math.cos(a);
+      this.by = c.y + c.h + R;
+    }
+
+    // ball got past you: lose a life
+    if (this.by - R > canvas.height) {
+      lives--;
+      updateHud();
+      buzz('notificationOccurred', 'error');
+      if (lives <= 0) { endGame(level); return; }
+      this.serveBall(-1);
+      return;
+    }
+
+    // ball got past the CPU: you score
+    if (this.by + R < 0) {
+      score += 10 * level;
+      this.lvlPoints++;
+      if (this.lvlPoints >= this.WIN) {
+        level++;
+        this.lvlPoints = 0;
+        this.setLevel();
+        this.banner = 90;
+        buzz('notificationOccurred', 'success');
+      }
+      updateHud();
+      this.serveBall(1);
+    }
+  },
+
+  draw() {
+    // center line
+    ctx.fillStyle = '#063a14';
+    for (let x = 0; x < canvas.width; x += 20) ctx.fillRect(x, canvas.height / 2 - 1, 10, 2);
+
+    const p = this.paddle, c = this.cpu;
+    ctx.fillStyle = '#0f0';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = '#f33';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(this.bx, this.by, this.R, 0, Math.PI * 2);
+    ctx.fill();
+
+    // points toward the next level
+    ctx.fillStyle = '#0a0';
+    ctx.font = '14px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(this.lvlPoints + ' / ' + this.WIN, 8, canvas.height / 2 - 8);
+
+    if (this.banner > 0) {
+      ctx.fillStyle = '#0f0';
+      ctx.font = 'bold 28px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('LEVEL ' + level, canvas.width / 2, canvas.height / 2 + 60);
+      this.banner--;
+    }
+  }
+};
  
 /* ============ SHARED GAME FLOW ============ */
-const GAMES = { invaders, snake, breakout };
+const GAMES = { invaders, snake, breakout, pong };
 
 function openGame(key) {
   currentKey = key;
@@ -526,13 +678,13 @@ canvas.addEventListener('touchend', e => {
   else snake.setDir(0, dy > 0 ? 1 : -1);
 });
 
-// Drag a finger to move the Breakout paddle
+// Drag a finger to move the paddle (Breakout and Pong)
 function dragPaddle(e) {
-  if (!running || current !== breakout) return;
+  if (!running || (current !== breakout && current !== pong)) return;
   e.preventDefault();
   const r = canvas.getBoundingClientRect();
   const x = (e.touches[0].clientX - r.left - canvas.clientLeft) * canvas.width / canvas.clientWidth;
-  const p = breakout.paddle;
+  const p = current.paddle;
   p.x = Math.max(0, Math.min(canvas.width - p.w, x - p.w / 2));
 }
 canvas.addEventListener('touchstart', dragPaddle, { passive: false });
