@@ -183,6 +183,7 @@ const invaders = {
     this.bullets = this.bullets.filter(b => !b.hit);
 
     if (this.aliens.every(a => !a.alive)) {
+      score += 100 * level;   // level-clear bonus
       level++;
       if (lives < MAX_LIVES) { lives++; bannerMsg = "+1 LIFE"; }
       updateHud();
@@ -429,6 +430,7 @@ const breakout = {
 
     // level cleared
     if (this.bricks.every(b => !b.alive)) {
+      score += 200 * level;   // level-clear bonus
       level++;
       if (lives < MAX_LIVES) { lives++; bannerMsg = "+1 LIFE"; }
       updateHud();
@@ -576,6 +578,7 @@ const pong = {
       score += 10 * level;
       this.lvlPoints++;
       if (this.lvlPoints >= this.WIN) {
+        score += 50 * level;   // level-clear bonus
         level++;
         this.lvlPoints = 0;
         if (lives < MAX_LIVES) { lives++; bannerMsg = "+1 LIFE"; }
