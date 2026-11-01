@@ -77,6 +77,8 @@ function buzz(type, kind) { try { tg.HapticFeedback[type](kind); } catch (e) {} 
 
 let current = null, currentKey = null, running = false, raf = 0, lastT = 0;
 let score = 0, lives = 3, level = 1;
+const MAX_LIVES = 3;   // most lives a player can hold
+let bannerMsg = "";   // message to show on the banner
 const keys = { left: false, right: false, fire: false };
 
 const show = id => $(id).classList.remove('hidden');
@@ -158,6 +160,7 @@ const invaders = {
 
     if (this.aliens.every(a => !a.alive)) {
       level++;
+      if (lives < MAX_LIVES) { lives++; bannerMsg = "+1 LIFE"; }
       updateHud();
       this.startLevel();
       this.banner = 90;
@@ -203,7 +206,12 @@ const invaders = {
       ctx.font = 'bold 28px "Courier New", monospace';
       ctx.textAlign = 'center';
       ctx.fillText('LEVEL ' + level, canvas.width / 2, canvas.height / 2);
+      if (bannerMsg) {
+        ctx.font = 'bold 20px "Courier New", monospace';
+        ctx.fillText(bannerMsg, canvas.width / 2, canvas.height / 2 + 30);
+      }
       this.banner--;
+      if (this.banner === 0) bannerMsg = '';
     }
   }
 };
@@ -398,6 +406,7 @@ const breakout = {
     // level cleared
     if (this.bricks.every(b => !b.alive)) {
       level++;
+      if (lives < MAX_LIVES) { lives++; bannerMsg = "+1 LIFE"; }
       updateHud();
       this.startLevel();
       this.banner = 90;
@@ -424,7 +433,12 @@ const breakout = {
       ctx.font = 'bold 28px "Courier New", monospace';
       ctx.textAlign = 'center';
       ctx.fillText('LEVEL ' + level, canvas.width / 2, canvas.height / 2 + 60);
+      if (bannerMsg) {
+        ctx.font = 'bold 20px "Courier New", monospace';
+        ctx.fillText(bannerMsg, canvas.width / 2, canvas.height / 2 + 90);
+      }
       this.banner--;
+      if (this.banner === 0) bannerMsg = '';
     }
   }
 };
@@ -540,6 +554,7 @@ const pong = {
       if (this.lvlPoints >= this.WIN) {
         level++;
         this.lvlPoints = 0;
+        if (lives < MAX_LIVES) { lives++; bannerMsg = "+1 LIFE"; }
         this.setLevel();
         this.banner = 90;
         buzz('notificationOccurred', 'success');
@@ -575,7 +590,12 @@ const pong = {
       ctx.font = 'bold 28px "Courier New", monospace';
       ctx.textAlign = 'center';
       ctx.fillText('LEVEL ' + level, canvas.width / 2, canvas.height / 2 + 60);
+      if (bannerMsg) {
+        ctx.font = 'bold 20px "Courier New", monospace';
+        ctx.fillText(bannerMsg, canvas.width / 2, canvas.height / 2 + 90);
+      }
       this.banner--;
+      if (this.banner === 0) bannerMsg = '';
     }
   }
 };
