@@ -549,6 +549,9 @@ $('submitBtn').onclick = () => {
   const payload = JSON.stringify({ game: currentKey, score, level });
   if (tg) tg.sendData(payload); else alert('Open from Telegram to submit: ' + payload);
 };
+ // Jump straight into a game when the URL has ?game=name
+const wanted = new URLSearchParams(location.search).get('game');
+if (wanted && GAMES[wanted]) openGame(wanted);
 </script>
 </body>
 </html>
