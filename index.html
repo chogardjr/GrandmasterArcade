@@ -1156,15 +1156,13 @@ function loop(t) {
   if (!running) return;
   const dt = t - lastT;
   lastT = t;
-  
-  // Debug: log timing
-  if (!window._frameCount) window._frameCount = 0;
-  window._frameCount++;
-  if (window._frameCount % 60 === 0) {
-    console.log('dt:', dt.toFixed(2), 'acc:', current.acc?.toFixed(2), 'STEP:', current.STEP);
-  }
-  
   current.update(dt);
+  if (!running) return;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  current.draw();
+  raf = requestAnimationFrame(loop);
+}
 
 function endGame(levelReached) {
   if (!running) return;
