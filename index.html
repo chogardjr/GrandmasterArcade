@@ -119,6 +119,8 @@ const invaders = {
   title: '👾 SPACE INVADERS 👾', hint: 'Hold 🔥 to fire',
   showLevel: true, showLives: true, showFire: true,
 
+  STEP: 1000 / 60,  // fixed 60fps logic rate
+  acc: 0,
   init() {
     this.ship = { x: 144, y: 360, w: 32, h: 24, speed: 3 };
     this.canFire = true;
@@ -144,7 +146,16 @@ const invaders = {
   },
   onPress(name) { if (name === 'fire') this.shoot(); },
 
-  update() {
+  update(dt) {
+    this.acc += Math.min(dt, 100);
+    while (this.acc >= this.STEP) {
+      this.acc -= this.STEP;
+      this.tick();
+      if (!running) return;
+    }
+  },
+  
+  tick() {
     const s = this.ship;
     if (keys.fire) this.shoot();
     if (keys.left && s.x > 0) s.x -= s.speed;
@@ -633,6 +644,8 @@ const galaga = {
   title: '👾 GALAGA', hint: 'Hold 🔥 to fire. Dive-bombing enemies can be rescued.',
   showLevel: true, showLives: true, showFire: true,
 
+  STEP: 1000 / 60,  // fixed 60fps logic rate
+  acc: 0,
   init() {
     this.ship = { x: 144, y: 360, w: 32, h: 24, speed: 3 };
     this.canFire = true;
@@ -668,7 +681,16 @@ const galaga = {
   },
   onPress(name) { if (name === 'fire') this.shoot(); },
 
-  update() {
+  update(dt) {
+    this.acc += Math.min(dt, 100);
+    while (this.acc >= this.STEP) {
+      this.acc -= this.STEP;
+      this.tick();
+      if (!running) return;
+    }
+  },
+  
+  tick() {
     const s = this.ship;
     if (keys.fire) this.shoot();
     if (keys.left && s.x > 0) s.x -= s.speed;
