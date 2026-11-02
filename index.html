@@ -716,8 +716,8 @@ const galaga = {
     }
 
     // Dive bombing
-    // Spawn divers less often, max 2 at a time
-    if (Math.random() < 0.008 && this.divers.length < 2 && 
+    // Spawn divers less often, max 1 at a time
+    if (Math.random() < 0.005 && this.divers.length < 1 && 
         this.aliens.filter(a => a.alive).length > 0) {
       const alive = this.aliens.filter(a => a.alive);
       const a = alive[Math.floor(Math.random() * alive.length)];
@@ -742,8 +742,8 @@ const galaga = {
     for (const d of this.divers) {
       if (!d.alive) continue;
       
-      // Slower progression: 0.008 = ~2 seconds per dive
-      d.t += 0.008;
+      // Slower progression: 0.005 = ~3.3 seconds per dive
+      d.t += 0.005;
       
       // Bezier curve toward player with wider arc
       const p0 = { x: d.ox, y: d.oy };
@@ -837,9 +837,9 @@ const galaga = {
         }
     this.bullets = this.bullets.filter(b => !b.hit);
 
-    // Enemy bullets
+    // Enemy bullets (less frequent)
     const alive = this.aliens.filter(a => a.alive);
-    const chance = Math.min(0.02 + (level - 1) * 0.004, 0.05);
+    const chance = Math.min(0.012 + (level - 1) * 0.003, 0.035);
     if (alive.length && Math.random() < chance) {
       const a = alive[Math.floor(Math.random() * alive.length)];
       this.enemyBullets.push({ x: a.x + a.w / 2, y: a.y + a.h });
